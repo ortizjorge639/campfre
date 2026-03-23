@@ -42,9 +42,29 @@ let _id = Date.now();
 const mkId = () => String(++_id);
 const today = () => new Date().toISOString().slice(0,10);
 
-/* ─── PERSISTENCE (localStorage + 6-month archive) ─── */
+/* ─── PERSISTENCE (localStorage + cloud sync) ─── */
 const STORAGE_KEY = "campfre_state";
+const SYNC_KEY_KEY = "campfre_sync_key";
 const ARCHIVE_MONTHS = 6;
+
+function genSyncKey() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let key = "";
+  for (let i = 0; i < 8; i++) key += chars[Math.floor(Math.random()*chars.length)];
+  return key;
+}
+
+function getSyncKey() {
+  try {
+    let key = localStorage.getItem(SYNC_KEY_KEY);
+    if (!key) { key = genSyncKey(); localStorage.setItem(SYNC_KEY_KEY, key); }
+    return key;
+  } catch { return null; }
+}
+
+function setSyncKey(key) {
+  try { localStorage.setItem(SYNC_KEY_KEY, key); } catch {}
+}
 
 function loadState() {
   try {
@@ -63,7 +83,33 @@ function loadState() {
 }
 
 function saveState(state) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, _ts: Date.now() })); } catch {}
+}
+
+let _syncTimer = null;
+function cloudSave(state) {
+  clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(async () => {
+    const key = getSyncKey();
+    if (!key) return;
+    try {
+      await fetch(`/api/sync?key=${key}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...state, _ts: Date.now() }),
+      });
+    } catch {}
+  }, 2000);
+}
+
+async function cloudLoad() {
+  const key = getSyncKey();
+  if (!key) return null;
+  try {
+    const res = await fetch(`/api/sync?key=${key}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
 }
 
 /* ─── LOADING TIPS (game-style, shown sparingly) ─── */
@@ -1107,10 +1153,13 @@ function LanesScreen({ primaryLane, setPrimaryLane, sideLanes, setSideLanes, ite
 
 /* ─── NAV ─── */
 /* ─── CONFIG FLOW (dream-like wizard) ─── */
-function ConfigFlow({ step, setStep, mood, setMood, phase, setPhase, primaryLane, setPrimaryLane, sideLanes, setSideLanes, onAddItem, onClose }) {
+function ConfigFlow({ step, setStep, mood, setMood, phase, setPhase, primaryLane, setPrimaryLane, sideLanes, setSideLanes, onAddItem, onDeleteItem, onEditItem, items, syncKey, onSyncKeyChange, syncStatus, onClose }) {
   const [quickText, setQuickText] = useState("");
   const [quickLane, setQuickLane] = useState("ai");
-  const totalSteps = 5;
+  const [syncInput, setSyncInput] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [editVal, setEditVal] = useState("");
+  const totalSteps = 7;
 
   const addQuick = () => {
     if (!quickText.trim()) return;
@@ -1223,6 +1272,78 @@ function ConfigFlow({ step, setStep, mood, setMood, phase, setPhase, primaryLane
         </div>
       </div>
     </div>,
+    // Step 5: Items & Progress
+    <div key="items" className="fade-up" style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16, padding:"0 20px" }}>
+      <div style={{ fontSize:32 }}>📋</div>
+      <div style={{ fontFamily:"'Clash Display',sans-serif", fontSize:24, fontWeight:700, color:T.ink, textAlign:"center", lineHeight:1.2 }}>Your Items</div>
+      <div style={{ fontSize:12, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif", textAlign:"center" }}>Edit or remove items. Progress tracked automatically.</div>
+      <div style={{ width:"100%", maxHeight:340, overflowY:"auto", display:"flex", flexDirection:"column", gap:10, marginTop:4 }}>
+        {["q1","q2","q3","q4"].map(qid=>{
+          const q = QUAD_META[qid];
+          const qItems = items.filter(i=>deriveQuad(i,primaryLane,sideLanes)===qid);
+          if (qItems.length===0) return null;
+          return (
+            <div key={qid}>
+              <div style={{ fontSize:11, color:q.color, fontWeight:700, fontFamily:"'Plus Jakarta Sans',sans-serif", textTransform:"uppercase", letterSpacing:1.5, marginBottom:6 }}>{q.emoji} {q.title}</div>
+              {qItems.map(item=>{
+                const ember = qid==="q2"?getEmberState(item.stokedDates):null;
+                const contained = qid==="q3"&&item.recurring?getContainState(item.containedDates):null;
+                const indulged = qid==="q4"&&item.indulgedDates?.includes(today());
+                return (
+                  <div key={item.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 10px", background:`${q.color}08`, border:`1px solid ${q.color}22`, borderRadius:10, marginBottom:4 }}>
+                    {editingId===item.id ? (
+                      <input value={editVal} onChange={e=>setEditVal(e.target.value)} autoFocus
+                        onBlur={()=>{if(editVal.trim())onEditItem(item.id,editVal.trim());setEditingId(null);}}
+                        onKeyDown={e=>{if(e.key==="Enter"){if(editVal.trim())onEditItem(item.id,editVal.trim());setEditingId(null);}}}
+                        style={{ flex:1, background:"transparent", border:"none", outline:"none", color:T.ink, fontSize:12, fontFamily:"'Plus Jakarta Sans',sans-serif" }}
+                      />
+                    ) : (
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div onClick={()=>{setEditingId(item.id);setEditVal(item.text);}} style={{ fontSize:12, color:T.inkSoft, fontFamily:"'Plus Jakarta Sans',sans-serif", cursor:"text", lineHeight:1.3 }}>{item.text}</div>
+                        <div style={{ display:"flex", gap:4, marginTop:3 }}>
+                          {ember && <span style={{ fontSize:8, padding:"1px 5px", borderRadius:6, background:`${q.color}18`, color:q.color, fontWeight:600 }}>{ember==="stoked"?"🔥 stoked":ember==="warm"?"🔥 warm":ember==="cooling"?"🪨 cooling":"🪨 cold"}</span>}
+                          {item.recurring && <span style={{ fontSize:8, padding:"1px 5px", borderRadius:6, background:`${T.amber}18`, color:T.amber, fontWeight:600 }}>recurring</span>}
+                          {contained && <span style={{ fontSize:8, padding:"1px 5px", borderRadius:6, background:`${T.sage}18`, color:T.sage, fontWeight:600 }}>{contained.mins}m</span>}
+                          {indulged && <span style={{ fontSize:8, padding:"1px 5px", borderRadius:6, background:`${q.color}18`, color:q.color, fontWeight:600 }}>enjoyed</span>}
+                        </div>
+                      </div>
+                    )}
+                    <button onClick={()=>onDeleteItem(item.id)} style={{ background:"none", border:"none", cursor:"pointer", color:T.dusty, fontSize:14, padding:"0 2px", opacity:0.6 }}>×</button>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>,
+    // Step 6: Sync
+    <div key="sync" className="fade-up" style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:20, padding:"0 20px" }}>
+      <div style={{ fontSize:32 }}>☁️</div>
+      <div style={{ fontFamily:"'Clash Display',sans-serif", fontSize:28, fontWeight:700, color:T.ink, textAlign:"center", lineHeight:1.2 }}>Cloud Sync</div>
+      <div style={{ fontSize:13, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif", textAlign:"center" }}>Use the same code on any device to sync your data.</div>
+      {/* Current sync key */}
+      <div style={{ width:"100%", background:T.card, border:`1.5px solid ${T.cardBdr}`, borderRadius:18, padding:"18px", textAlign:"center" }}>
+        <div style={{ fontSize:10, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif", textTransform:"uppercase", letterSpacing:2, marginBottom:8 }}>Your Sync Code</div>
+        <div style={{ fontFamily:"'Clash Display',sans-serif", fontSize:32, fontWeight:700, color:T.coral, letterSpacing:4 }}>{syncKey}</div>
+        <div style={{ fontSize:11, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif", marginTop:8 }}>
+          {syncStatus==="saving"?"Syncing..." : syncStatus==="saved"?"Synced ✓" : syncStatus==="loaded"?"Loaded from cloud ✓" : "Auto-syncs every change"}
+        </div>
+      </div>
+      {/* Enter different sync key */}
+      <div style={{ width:"100%" }}>
+        <div style={{ fontSize:11, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif", marginBottom:6 }}>Or enter a code from another device:</div>
+        <div style={{ display:"flex", gap:8 }}>
+          <input value={syncInput} onChange={e=>setSyncInput(e.target.value.toUpperCase())} maxLength={8}
+            placeholder="ENTER CODE"
+            style={{ flex:1, padding:"12px 16px", background:T.bg, border:`1.5px solid ${T.cardBdr}`, borderRadius:12, fontSize:16, fontFamily:"'Clash Display',sans-serif", color:T.ink, outline:"none", letterSpacing:3, textAlign:"center", fontWeight:700 }}
+          />
+          <button onClick={()=>{if(syncInput.length>=6){setSyncKey(syncInput);onSyncKeyChange(syncInput);}}} style={{ padding:"12px 18px", background:syncInput.length>=6?T.sage:`${T.dusty}33`, border:"none", borderRadius:12, color:"white", fontSize:13, fontFamily:"'Clash Display',sans-serif", fontWeight:700, cursor:syncInput.length>=6?"pointer":"default", opacity:syncInput.length>=6?1:0.5 }}>
+            Link
+          </button>
+        </div>
+      </div>
+    </div>,
   ];
 
   return (
@@ -1290,12 +1411,44 @@ export default function App() {
   const [loadingTip, setLoadingTip]   = useState(()=>LOADING_TIPS[Math.floor(Math.random()*LOADING_TIPS.length)]);
   const [showTip, setShowTip]         = useState(!saved);
 
+  const [syncKey, setSyncKeyState] = useState(getSyncKey);
+  const [syncStatus, setSyncStatus] = useState(""); // "saving" | "saved" | "loaded" | ""
+  const mountedRef = useRef(false);
+
   const refreshSpark = () => setSpark(getSerendipity(items, phase, mood, primaryLane, sideLanes));
 
-  // Persist state on every change
+  // Persist state on every change (local + cloud)
   useEffect(()=>{
-    saveState({ items, phase, mood, primaryLane, sideLanes, completedLog });
+    const state = { items, phase, mood, primaryLane, sideLanes, completedLog };
+    saveState(state);
+    if (mountedRef.current) {
+      setSyncStatus("saving");
+      cloudSave(state);
+      const t = setTimeout(()=>setSyncStatus("saved"), 2500);
+      const t2 = setTimeout(()=>setSyncStatus(""), 5000);
+      return ()=>{clearTimeout(t);clearTimeout(t2);};
+    }
   },[items, phase, mood, primaryLane, sideLanes, completedLog]);
+
+  // Cloud load on mount — use cloud if newer than local
+  useEffect(()=>{
+    mountedRef.current = true;
+    cloudLoad().then(cloud=>{
+      if (!cloud) return;
+      const local = loadState();
+      const localTs = local?._ts || 0;
+      if (cloud._ts && cloud._ts > localTs) {
+        if (cloud.items) setItems(cloud.items);
+        if (cloud.phase) setPhase(cloud.phase);
+        if (cloud.mood) setMood(cloud.mood);
+        if (cloud.primaryLane) setPrimaryLane(cloud.primaryLane);
+        if (cloud.sideLanes) setSideLanes(cloud.sideLanes);
+        if (cloud.completedLog) setCompletedLog(cloud.completedLog);
+        setSyncStatus("loaded");
+        setTimeout(()=>setSyncStatus(""), 3000);
+      }
+    });
+  },[]);
 
   useEffect(()=>{
     const id=setInterval(()=>setMantraIdx(m=>(m+1)%MANTRAS.length),6000);
@@ -1412,7 +1565,9 @@ export default function App() {
           phase={phase} setPhase={setPhase}
           primaryLane={primaryLane} setPrimaryLane={setPrimaryLane}
           sideLanes={sideLanes} setSideLanes={setSideLanes}
-          onAddItem={addItem}
+          onAddItem={addItem} onDeleteItem={deleteItem} onEditItem={editItem}
+          items={items} syncKey={syncKey} syncStatus={syncStatus}
+          onSyncKeyChange={(k)=>{setSyncKey(k);setSyncKeyState(k);cloudLoad().then(cloud=>{if(cloud?.items){setItems(cloud.items);if(cloud.phase)setPhase(cloud.phase);if(cloud.mood)setMood(cloud.mood);if(cloud.primaryLane)setPrimaryLane(cloud.primaryLane);if(cloud.sideLanes)setSideLanes(cloud.sideLanes);if(cloud.completedLog)setCompletedLog(cloud.completedLog);setSyncStatus("loaded");setTimeout(()=>setSyncStatus(""),3000);}});}}
           onClose={()=>{setShowConfig(false);setScreen("home");refreshSpark();}}
         />
       )}
