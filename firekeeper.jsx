@@ -38,8 +38,47 @@ function deriveQuad(item, primaryLane, sideLanes) {
   return "q3";
 }
 
-let _id = 100;
+let _id = Date.now();
 const mkId = () => String(++_id);
+const today = () => new Date().toISOString().slice(0,10);
+
+/* ─── PERSISTENCE (localStorage + 6-month archive) ─── */
+const STORAGE_KEY = "campfre_state";
+const ARCHIVE_MONTHS = 6;
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const state = JSON.parse(raw);
+    // Archive: drop completedLog entries older than 6 months
+    if (state.completedLog) {
+      const cutoff = new Date();
+      cutoff.setMonth(cutoff.getMonth() - ARCHIVE_MONTHS);
+      const cutoffStr = cutoff.toISOString().slice(0,10);
+      state.completedLog = state.completedLog.filter(e => e.date >= cutoffStr);
+    }
+    return state;
+  } catch { return null; }
+}
+
+function saveState(state) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+}
+
+/* ─── LOADING TIPS (game-style, shown sparingly) ─── */
+const LOADING_TIPS = [
+  "Side lanes aren't distractions — they're scheduled freedom.",
+  "The matrix rebalances when you change lanes.",
+  "Boredom is a feature, not a bug.",
+  "Double-tap any item to edit it inline.",
+  "Your phase doesn't judge you. It locates you.",
+  "Completing items builds your streak. Check in daily.",
+  "The gap is where your next obsession germinates.",
+  "Use ⇄ to move items between quadrants.",
+  "Lock-in isn't forever. You cycle. That's healthy.",
+  "One primary lane. Everything else is a side lane.",
+];
 
 /* ─── INITIAL ITEMS ─── */
 const INITIAL_ITEMS = [
@@ -238,10 +277,11 @@ function LaneBadge({ laneId, small=false }) {
 }
 
 /* ─── ITEM ROW (matrix sheet) ─── */
-function TaskRow({ item, quadColor, onDelete, onEdit, onMove, primaryLane, sideLanes }) {
+function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, primaryLane, sideLanes }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(item.text);
   const [showMove, setShowMove] = useState(false);
+  const [completing, setCompleting] = useState(false);
   const inputRef = useRef();
   useEffect(()=>{ if(editing) inputRef.current?.focus(); },[editing]);
 
@@ -249,6 +289,11 @@ function TaskRow({ item, quadColor, onDelete, onEdit, onMove, primaryLane, sideL
     if(val.trim()&&val.trim()!==item.text) onEdit(item.id, val.trim());
     else setVal(item.text);
     setEditing(false);
+  };
+
+  const handleComplete = () => {
+    setCompleting(true);
+    setTimeout(()=>onComplete(item.id), 400);
   };
 
   const moveOptions = [
@@ -259,9 +304,13 @@ function TaskRow({ item, quadColor, onDelete, onEdit, onMove, primaryLane, sideL
   ];
 
   return (
-    <div style={{ marginBottom:6 }}>
+    <div style={{ marginBottom:6, opacity:completing?0:1, transform:completing?"scale(0.95)":"scale(1)", transition:"all 0.35s ease" }}>
       <div style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", background:`${quadColor}10`, border:`1px solid ${quadColor}28`, borderRadius:12 }}>
-        <div style={{ width:6, height:6, borderRadius:"50%", background:quadColor, flexShrink:0, opacity:0.8 }}/>
+        <button onClick={handleComplete} style={{ width:20, height:20, borderRadius:"50%", background:"transparent", border:`2px solid ${quadColor}66`, cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", padding:0, transition:"all 0.2s" }}
+          onMouseEnter={e=>{e.currentTarget.style.background=`${quadColor}33`;e.currentTarget.style.borderColor=quadColor;}}
+          onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor=`${quadColor}66`;}}>
+          {completing && <span style={{ color:quadColor, fontSize:11 }}>✓</span>}
+        </button>
         {editing ? (
           <input ref={inputRef} value={val} onChange={e=>setVal(e.target.value)}
             onBlur={commit} onKeyDown={e=>{if(e.key==="Enter")commit();if(e.key==="Escape"){setVal(item.text);setEditing(false);}}}
@@ -382,9 +431,6 @@ function QuadrantSheet({ qid, items, onAdd, onDelete, onEdit, onMove, onClose, p
             />
             <button onClick={add} style={{ width:46, height:46, borderRadius:14, background:q.color, border:"none", color:"white", fontSize:22, cursor:"pointer", boxShadow:`0 4px 16px ${q.color}44`, flexShrink:0 }}>+</button>
           </div>
-          <div style={{ marginTop:8, padding:"7px 12px", background:`${T.muted}60`, borderRadius:10, fontSize:11, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
-            💡 Tag each item with a lane · Use ⇄ on any item to move it · Double-tap to edit text
-          </div>
         </div>
       </div>
     </div>
@@ -462,7 +508,7 @@ function SerendipityCard({ spark, onShuffle }) {
   );
 }
 
-function HomeScreen({ phase, mood, setMood, primaryLane, sideLanes, mantraIdx, onNav, items, spark, onShuffle }) {
+function HomeScreen({ phase, mood, setMood, primaryLane, sideLanes, mantraIdx, onNav, items, spark, onShuffle, completedToday, completedLog }) {
   const m = MANTRAS[mantraIdx];
   const phaseObj = PHASES.find(p=>p.id===phase);
   const lane = LANES.find(l=>l.id===primaryLane);
@@ -541,7 +587,7 @@ function HomeScreen({ phase, mood, setMood, primaryLane, sideLanes, mantraIdx, o
       <div style={{ padding:"14px 20px 0" }}>
         <div style={{ background:T.card, borderRadius:18, padding:"16px", border:`1px solid ${T.cardBdr}` }}>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:0 }}>
-            {[{val:total,label:"Total",color:T.ink},{val:q2,label:"Deep Focus",color:T.sage},{val:q1,label:"Do Now",color:T.coral}].map((s,i)=>(
+            {[{val:total,label:"Active",color:T.ink},{val:completedToday,label:"Done Today",color:T.sage},{val:q1,label:"Do Now",color:T.coral}].map((s,i)=>(
               <div key={i} style={{ textAlign:"center", borderRight:i<2?`1px solid ${T.cardBdr}`:"none", padding:"0 8px" }}>
                 <div style={{ fontFamily:"'Clash Display',sans-serif", fontSize:30, fontWeight:700, color:s.color, lineHeight:1 }}>{s.val}</div>
                 <div style={{ fontSize:11, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif", marginTop:3 }}>{s.label}</div>
@@ -637,24 +683,25 @@ function InlineQuadAdd({ qid, quadColor, onAdd, primaryLane, sideLanes }) {
 }
 
 /* MATRIX */
-function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, primaryLane, sideLanes }) {
+function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, onCompleteItem, completedToday, primaryLane, sideLanes }) {
   const byQuad = qid => items.filter(i => deriveQuad(i, primaryLane, sideLanes) === qid);
 
   return (
     <div className="fade-up" style={{ padding:"20px 20px 110px" }}>
-      <div style={{ marginBottom:16 }}>
-        <div style={{ fontFamily:"'Clash Display',sans-serif", fontSize:26, fontWeight:700, color:T.ink }}>Focus Matrix</div>
-        <div style={{ fontSize:13, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
-          Items auto-sort by lane · Edit inline
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
+        <div>
+          <div style={{ fontFamily:"'Clash Display',sans-serif", fontSize:26, fontWeight:700, color:T.ink }}>Focus Matrix</div>
+          <div style={{ fontSize:13, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
+            Tap ○ to complete · double-tap to edit
+          </div>
         </div>
-      </div>
-
-      {/* Sync callout */}
-      <div style={{ marginBottom:16, padding:"10px 14px", background:`${T.sage}10`, border:`1px solid ${T.sage}28`, borderRadius:14, display:"flex", alignItems:"center", gap:10 }}>
-        <span style={{ fontSize:16 }}>⇄</span>
-        <div style={{ fontSize:12, color:T.inkSoft, fontFamily:"'Plus Jakarta Sans',sans-serif", lineHeight:1.45 }}>
-          <strong style={{color:T.sage}}>Live sync:</strong> Your main lane feeds Q2 · Side lanes feed Q4 · Change lanes to rebalance
-        </div>
+        {completedToday > 0 && (
+          <div style={{ background:`${T.sage}18`, border:`1px solid ${T.sage}33`, borderRadius:14, padding:"6px 12px", display:"flex", alignItems:"center", gap:6 }}>
+            <span style={{ fontSize:14 }}>✓</span>
+            <div style={{ fontFamily:"'Clash Display',sans-serif", fontSize:18, fontWeight:700, color:T.sage }}>{completedToday}</div>
+            <div style={{ fontSize:10, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>today</div>
+          </div>
+        )}
       </div>
 
       <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
@@ -684,7 +731,7 @@ function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, 
                 ? <div style={{ padding:"10px 0", color:T.dusty, fontSize:12, fontStyle:"italic", fontFamily:"'Plus Jakarta Sans',sans-serif" }}>Nothing here yet</div>
                 : qItems.map(item=>(
                   <TaskRow key={item.id} item={item} quadColor={q.color}
-                    onDelete={onDeleteItem} onEdit={onEditItem} onMove={onMoveItem}
+                    onDelete={onDeleteItem} onEdit={onEditItem} onMove={onMoveItem} onComplete={onCompleteItem}
                     primaryLane={primaryLane} sideLanes={sideLanes}
                   />
                 ))
@@ -871,13 +918,6 @@ function LanesScreen({ primaryLane, setPrimaryLane, sideLanes, setSideLanes, ite
         <div style={{ fontSize:13, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif", lineHeight:1.5 }}>One primary lane. Everything else is a side lane.</div>
       </div>
 
-      {/* Sync callout */}
-      <div style={{ marginBottom:18, padding:"10px 14px", background:`${T.sage}10`, border:`1px solid ${T.sage}28`, borderRadius:14, display:"flex", alignItems:"center", gap:10 }}>
-        <span style={{ fontSize:16 }}>⇄</span>
-        <div style={{ fontSize:12, color:T.inkSoft, fontFamily:"'Plus Jakarta Sans',sans-serif", lineHeight:1.45 }}>
-          <strong style={{color:T.sage}}>Changing lanes instantly updates the Matrix.</strong> Main lane → Focus Deeply. Side lanes → Enjoy Freely.
-        </div>
-      </div>
 
       <div style={{ fontSize:11, letterSpacing:2, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif", textTransform:"uppercase", marginBottom:12 }}>Main Lane → Focus Deeply (Q2)</div>
       <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:28 }}>
@@ -922,11 +962,6 @@ function LanesScreen({ primaryLane, setPrimaryLane, sideLanes, setSideLanes, ite
         })}
       </div>
 
-      <div style={{ marginTop:18, padding:"12px 14px", background:`${T.amber}12`, borderRadius:12, borderLeft:`3px solid ${T.amber}` }}>
-        <div style={{ fontSize:12, color:T.inkSoft, fontFamily:"'Plus Jakarta Sans',sans-serif", lineHeight:1.5 }}>
-          💡 When your main direction is clear, side lanes stop competing for your identity.
-        </div>
-      </div>
     </div>
   );
 }
@@ -1101,18 +1136,27 @@ const NAV = [
 
 /* ─── APP ─── */
 export default function App() {
+  const saved = useRef(loadState()).current;
   const [screen, setScreen]           = useState("home");
-  const [items, setItems]             = useState(INITIAL_ITEMS);
-  const [phase, setPhase]             = useState("gap");
-  const [mood, setMood]               = useState(3);
-  const [primaryLane, setPrimaryLane] = useState("ai");
-  const [sideLanes, setSideLanes]     = useState(["gaming","fitness","social"]);
+  const [items, setItems]             = useState(saved?.items || INITIAL_ITEMS);
+  const [phase, setPhase]             = useState(saved?.phase || "gap");
+  const [mood, setMood]               = useState(saved?.mood || 3);
+  const [primaryLane, setPrimaryLane] = useState(saved?.primaryLane || "ai");
+  const [sideLanes, setSideLanes]     = useState(saved?.sideLanes || ["gaming","fitness","social"]);
+  const [completedLog, setCompletedLog] = useState(saved?.completedLog || []);
   const [mantraIdx, setMantraIdx]     = useState(0);
   const [spark, setSpark]             = useState(null);
-  const [showConfig, setShowConfig]   = useState(true);
+  const [showConfig, setShowConfig]   = useState(!saved);
   const [configStep, setConfigStep]   = useState(0);
+  const [loadingTip, setLoadingTip]   = useState(()=>LOADING_TIPS[Math.floor(Math.random()*LOADING_TIPS.length)]);
+  const [showTip, setShowTip]         = useState(!saved);
 
   const refreshSpark = () => setSpark(getSerendipity(items, phase, mood, primaryLane, sideLanes));
+
+  // Persist state on every change
+  useEffect(()=>{
+    saveState({ items, phase, mood, primaryLane, sideLanes, completedLog });
+  },[items, phase, mood, primaryLane, sideLanes, completedLog]);
 
   useEffect(()=>{
     const id=setInterval(()=>setMantraIdx(m=>(m+1)%MANTRAS.length),6000);
@@ -1121,17 +1165,33 @@ export default function App() {
 
   useEffect(()=>{ refreshSpark(); },[phase, mood, primaryLane]);
 
+  // Dismiss loading tip after 3s
+  useEffect(()=>{
+    if (showTip) {
+      const id = setTimeout(()=>setShowTip(false), 3000);
+      return ()=>clearTimeout(id);
+    }
+  },[showTip]);
+
+  const completedToday = completedLog.filter(e => e.date === today()).length;
+
   /* Item CRUD */
   const addItem    = (item) => setItems(prev=>[...prev, item]);
   const deleteItem = (id)   => setItems(prev=>prev.filter(i=>i.id!==id));
   const editItem   = (id, text) => setItems(prev=>prev.map(i=>i.id===id?{...i,text}:i));
-  /* Move: change urgency (and optionally forceLane) */
   const moveItem   = (id, urgency, forceLane) => setItems(prev=>prev.map(i=>i.id===id?{...i, urgency, lane: forceLane||i.lane}:i));
+  const completeItem = (id) => {
+    const item = items.find(i=>i.id===id);
+    if (item) {
+      setCompletedLog(prev=>[...prev, { text:item.text, lane:item.lane, quad:deriveQuad(item, primaryLane, sideLanes), date:today(), time:new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) }]);
+      setItems(prev=>prev.filter(i=>i.id!==id));
+    }
+  };
 
   const renderScreen = () => {
     switch(screen){
-      case "home":   return <HomeScreen phase={phase} mood={mood} setMood={setMood} primaryLane={primaryLane} sideLanes={sideLanes} mantraIdx={mantraIdx} onNav={setScreen} items={items} spark={spark} onShuffle={refreshSpark}/>;
-      case "matrix": return <MatrixScreen items={items} onAddItem={addItem} onDeleteItem={deleteItem} onEditItem={editItem} onMoveItem={moveItem} primaryLane={primaryLane} sideLanes={sideLanes}/>;
+      case "home":   return <HomeScreen phase={phase} mood={mood} setMood={setMood} primaryLane={primaryLane} sideLanes={sideLanes} mantraIdx={mantraIdx} onNav={setScreen} items={items} spark={spark} onShuffle={refreshSpark} completedToday={completedToday} completedLog={completedLog}/>;
+      case "matrix": return <MatrixScreen items={items} onAddItem={addItem} onDeleteItem={deleteItem} onEditItem={editItem} onMoveItem={moveItem} onCompleteItem={completeItem} completedToday={completedToday} primaryLane={primaryLane} sideLanes={sideLanes}/>;
       case "reflect": return <ReflectScreen phase={phase}/>;
       case "phase":  return <PhaseScreen phase={phase} setPhase={setPhase}/>;
       case "lanes":  return <LanesScreen primaryLane={primaryLane} setPrimaryLane={setPrimaryLane} sideLanes={sideLanes} setSideLanes={setSideLanes} items={items}/>;
@@ -1159,6 +1219,14 @@ export default function App() {
         .pop{animation:pop 0.35s cubic-bezier(0.34,1.56,0.64,1) both;}
       `}</style>
       <div style={{ height:"env(safe-area-inset-top,0px)" }}/>
+      {/* Loading tip — game-style */}
+      {showTip && (
+        <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, zIndex:400, padding:"env(safe-area-inset-top,12px) 20px 12px", background:"linear-gradient(180deg,rgba(19,18,32,0.98),rgba(19,18,32,0))", animation:"fadeIn 0.5s ease" }}>
+          <div style={{ fontSize:11, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif", textAlign:"center", fontStyle:"italic" }}>
+            {loadingTip}
+          </div>
+        </div>
+      )}
       {screen!=="home"&&(
         <div style={{ display:"flex", alignItems:"center", padding:"16px 20px 0", gap:12 }}>
           <button onClick={()=>setScreen("home")} style={{ background:T.card, border:`1px solid ${T.cardBdr}`, borderRadius:12, width:36, height:36, cursor:"pointer", fontSize:16, display:"flex", alignItems:"center", justifyContent:"center", color:T.inkSoft }}>←</button>
