@@ -12,7 +12,7 @@ export default async function handler(req, res) {
     try {
       const { blobs } = await list({ prefix: path, limit: 1 });
       if (blobs.length === 0) return res.status(404).json({ error: 'not found' });
-      const blob = await get(blobs[0].url, {});
+      const blob = await get(blobs[0].url, { access: 'private' });
       const reader = blob.body.getReader();
       const chunks = [];
       while (true) {
