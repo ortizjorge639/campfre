@@ -276,12 +276,25 @@ function LaneBadge({ laneId, small=false }) {
   );
 }
 
+/* ─── EMBER HEAT (days since last stoke) ─── */
+function getEmberState(stokedDates) {
+  if (!stokedDates || stokedDates.length === 0) return "cold";
+  const d = today();
+  if (stokedDates.includes(d)) return "stoked";
+  const yesterday = new Date(); yesterday.setDate(yesterday.getDate()-1);
+  const twoDaysAgo = new Date(); twoDaysAgo.setDate(twoDaysAgo.getDate()-2);
+  if (stokedDates.includes(yesterday.toISOString().slice(0,10))) return "warm";
+  if (stokedDates.includes(twoDaysAgo.toISOString().slice(0,10))) return "cooling";
+  return "cold";
+}
+
 /* ─── ITEM ROW (matrix sheet) ─── */
-function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, primaryLane, sideLanes }) {
+function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStoke, isQ2, primaryLane, sideLanes }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(item.text);
   const [showMove, setShowMove] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [justStoked, setJustStoked] = useState(false);
   const inputRef = useRef();
   useEffect(()=>{ if(editing) inputRef.current?.focus(); },[editing]);
 
@@ -296,6 +309,15 @@ function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, primar
     setTimeout(()=>onComplete(item.id), 400);
   };
 
+  const handleStoke = () => {
+    onStoke(item.id);
+    setJustStoked(true);
+    setTimeout(()=>setJustStoked(false), 800);
+  };
+
+  const ember = isQ2 ? getEmberState(item.stokedDates) : null;
+  const stokedToday = ember === "stoked";
+
   const moveOptions = [
     { label:"⚡ Do Now",       urgency:"q1" },
     { label:"🔥 Focus Deeply", urgency:null, forceLane: primaryLane },
@@ -303,14 +325,27 @@ function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, primar
     { label:"🎮 Enjoy Freely", urgency:null, forceLane: sideLanes[0]||"gaming" },
   ];
 
+  // Ember visual styles
+  const emberIcon = ember==="stoked"?"🔥": ember==="warm"?"🔥": ember==="cooling"?"🪨":"🪨";
+  const emberOpacity = ember==="stoked"?1 : ember==="warm"?0.65 : ember==="cooling"?0.35 : 0.2;
+
   return (
-    <div style={{ marginBottom:6, opacity:completing?0:1, transform:completing?"scale(0.95)":"scale(1)", transition:"all 0.35s ease" }}>
-      <div style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", background:`${quadColor}10`, border:`1px solid ${quadColor}28`, borderRadius:12 }}>
-        <button onClick={handleComplete} style={{ width:20, height:20, borderRadius:"50%", background:"transparent", border:`2px solid ${quadColor}66`, cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", padding:0, transition:"all 0.2s" }}
-          onMouseEnter={e=>{e.currentTarget.style.background=`${quadColor}33`;e.currentTarget.style.borderColor=quadColor;}}
-          onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor=`${quadColor}66`;}}>
-          {completing && <span style={{ color:quadColor, fontSize:11 }}>✓</span>}
-        </button>
+    <div style={{ marginBottom:6, opacity:completing?0:1, transform:completing?"scale(0.95)": justStoked?"scale(1.02)":"scale(1)", transition:"all 0.35s ease" }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", background: isQ2&&stokedToday ? `${quadColor}18` : `${quadColor}10`, border:`1px solid ${isQ2&&stokedToday ? quadColor+"44" : quadColor+"28"}`, borderRadius:12, transition:"all 0.3s ease" }}>
+        {isQ2 ? (
+          /* Ember button for Q2 */
+          <button onClick={stokedToday?undefined:handleStoke} style={{ width:24, height:24, borderRadius:"50%", background:stokedToday?`${quadColor}30`:"transparent", border:`2px solid ${stokedToday?quadColor:quadColor+"44"}`, cursor:stokedToday?"default":"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", padding:0, transition:"all 0.3s cubic-bezier(0.34,1.56,0.64,1)", transform:justStoked?"scale(1.3)":"scale(1)", opacity:emberOpacity, fontSize:12 }}
+            title={stokedToday?"Stoked today":"Stoke the ember"}>
+            {emberIcon}
+          </button>
+        ) : (
+          /* Checkbox for Q1/Q3/Q4 */
+          <button onClick={handleComplete} style={{ width:20, height:20, borderRadius:"50%", background:"transparent", border:`2px solid ${quadColor}66`, cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", padding:0, transition:"all 0.2s" }}
+            onMouseEnter={e=>{e.currentTarget.style.background=`${quadColor}33`;e.currentTarget.style.borderColor=quadColor;}}
+            onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor=`${quadColor}66`;}}>
+            {completing && <span style={{ color:quadColor, fontSize:11 }}>✓</span>}
+          </button>
+        )}
         {editing ? (
           <input ref={inputRef} value={val} onChange={e=>setVal(e.target.value)}
             onBlur={commit} onKeyDown={e=>{if(e.key==="Enter")commit();if(e.key==="Escape"){setVal(item.text);setEditing(false);}}}
@@ -683,7 +718,7 @@ function InlineQuadAdd({ qid, quadColor, onAdd, primaryLane, sideLanes }) {
 }
 
 /* MATRIX */
-function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, onCompleteItem, completedToday, primaryLane, sideLanes }) {
+function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, onCompleteItem, onStokeItem, completedToday, primaryLane, sideLanes }) {
   const byQuad = qid => items.filter(i => deriveQuad(i, primaryLane, sideLanes) === qid);
 
   return (
@@ -692,7 +727,7 @@ function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, 
         <div>
           <div style={{ fontFamily:"'Clash Display',sans-serif", fontSize:26, fontWeight:700, color:T.ink }}>Focus Matrix</div>
           <div style={{ fontSize:13, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
-            Tap ○ to complete · double-tap to edit
+            Tap ○ to complete · 🔥 to stoke · double-tap to edit
           </div>
         </div>
         {completedToday > 0 && (
@@ -732,6 +767,7 @@ function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, 
                 : qItems.map(item=>(
                   <TaskRow key={item.id} item={item} quadColor={q.color}
                     onDelete={onDeleteItem} onEdit={onEditItem} onMove={onMoveItem} onComplete={onCompleteItem}
+                    onStoke={onStokeItem} isQ2={qid==="q2"}
                     primaryLane={primaryLane} sideLanes={sideLanes}
                   />
                 ))
@@ -1187,11 +1223,15 @@ export default function App() {
       setItems(prev=>prev.filter(i=>i.id!==id));
     }
   };
+  const stokeItem = (id) => {
+    const d = today();
+    setItems(prev=>prev.map(i=>i.id===id?{...i, stokedDates:[...(i.stokedDates||[]).filter(s=>s!==d), d]}:i));
+  };
 
   const renderScreen = () => {
     switch(screen){
       case "home":   return <HomeScreen phase={phase} mood={mood} setMood={setMood} primaryLane={primaryLane} sideLanes={sideLanes} mantraIdx={mantraIdx} onNav={setScreen} items={items} spark={spark} onShuffle={refreshSpark} completedToday={completedToday} completedLog={completedLog}/>;
-      case "matrix": return <MatrixScreen items={items} onAddItem={addItem} onDeleteItem={deleteItem} onEditItem={editItem} onMoveItem={moveItem} onCompleteItem={completeItem} completedToday={completedToday} primaryLane={primaryLane} sideLanes={sideLanes}/>;
+      case "matrix": return <MatrixScreen items={items} onAddItem={addItem} onDeleteItem={deleteItem} onEditItem={editItem} onMoveItem={moveItem} onCompleteItem={completeItem} onStokeItem={stokeItem} completedToday={completedToday} primaryLane={primaryLane} sideLanes={sideLanes}/>;
       case "reflect": return <ReflectScreen phase={phase}/>;
       case "phase":  return <PhaseScreen phase={phase} setPhase={setPhase}/>;
       case "lanes":  return <LanesScreen primaryLane={primaryLane} setPrimaryLane={setPrimaryLane} sideLanes={sideLanes} setSideLanes={setSideLanes} items={items}/>;
