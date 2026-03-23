@@ -277,6 +277,15 @@ function LaneBadge({ laneId, small=false }) {
 }
 
 /* ─── EMBER HEAT (days since last stoke) ─── */
+const TIME_BOXES = [{label:"15m",mins:15},{label:"30m",mins:30},{label:"1hr",mins:60}];
+
+function getContainState(containedDates) {
+  if (!containedDates || containedDates.length===0) return null;
+  const d = today();
+  const todayEntry = containedDates.find(e=>e.date===d);
+  return todayEntry || null; // { date, mins }
+}
+
 function getEmberState(stokedDates) {
   if (!stokedDates || stokedDates.length === 0) return "cold";
   const d = today();
@@ -289,13 +298,15 @@ function getEmberState(stokedDates) {
 }
 
 /* ─── ITEM ROW (matrix sheet) ─── */
-function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStoke, onDeflect, isQ2, isQ3, primaryLane, sideLanes }) {
+function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStoke, onDeflect, onContain, isQ2, isQ3, primaryLane, sideLanes }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(item.text);
   const [showMove, setShowMove] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [justStoked, setJustStoked] = useState(false);
-  const [deflecting, setDeflecting] = useState(null); // "deflect" | "absorb" | null
+  const [deflecting, setDeflecting] = useState(null);
+  const [showTimebox, setShowTimebox] = useState(false);
+  const [justContained, setJustContained] = useState(false);
   const inputRef = useRef();
   useEffect(()=>{ if(editing) inputRef.current?.focus(); },[editing]);
 
@@ -321,7 +332,15 @@ function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStok
     setTimeout(()=>onDeflect(item.id, action), 450);
   };
 
+  const handleContain = (mins) => {
+    onContain(item.id, mins);
+    setShowTimebox(false);
+    setJustContained(true);
+    setTimeout(()=>setJustContained(false), 800);
+  };
+
   const ember = isQ2 ? getEmberState(item.stokedDates) : null;
+  const contained = (isQ3 && item.recurring) ? getContainState(item.containedDates) : null;
   const stokedToday = ember === "stoked";
 
   const moveOptions = [
@@ -344,8 +363,14 @@ function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStok
             title={stokedToday?"Stoked today":"Stoke the ember"}>
             {emberIcon}
           </button>
+        ) : isQ3 && item.recurring ? (
+          /* Time-box for recurring Q3 */
+          <button onClick={()=>contained?undefined:setShowTimebox(!showTimebox)} style={{ width:26, height:26, borderRadius:"50%", background:contained?`${T.amber}30`:"transparent", border:`2px solid ${contained?T.amber:T.amber+"44"}`, cursor:contained?"default":"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", padding:0, fontSize:12, transition:"all 0.3s cubic-bezier(0.34,1.56,0.64,1)", transform:justContained?"scale(1.25)":"scale(1)", opacity:contained?1:0.6 }}
+            title={contained?`Contained ${contained.mins}m today`:"Set time box"}>
+            {contained?"⏱":"⏱"}
+          </button>
         ) : isQ3 ? (
-          /* Deflect / Absorb for Q3 */
+          /* Deflect / Absorb for one-off Q3 */
           <div style={{ display:"flex", gap:4, flexShrink:0 }}>
             <button onClick={()=>handleDeflect("deflect")} style={{ width:24, height:24, borderRadius:"50%", background:deflecting==="deflect"?`${T.sage}44`:"transparent", border:`2px solid ${T.sage}55`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", padding:0, fontSize:11, transition:"all 0.25s cubic-bezier(0.34,1.56,0.64,1)", transform:deflecting==="deflect"?"scale(1.2)":"scale(1)" }}
               title="Deflect — said no or delegated">🛡</button>
@@ -368,13 +393,27 @@ function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStok
         ) : (
           <div style={{ flex:1, minWidth:0 }}>
             <div onDoubleClick={()=>setEditing(true)} style={{ fontSize:13, color:T.inkSoft, fontFamily:"'Plus Jakarta Sans',sans-serif", lineHeight:1.4, cursor:"text", marginBottom:3 }}>{item.text}</div>
-            <LaneBadge laneId={item.lane} small />
+            <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+              <LaneBadge laneId={item.lane} small />
+              {item.recurring && <span style={{ fontSize:9, color:T.amber, fontFamily:"'Plus Jakarta Sans',sans-serif", fontWeight:600, background:`${T.amber}18`, padding:"1px 5px", borderRadius:8 }}>recurring</span>}
+              {contained && <span style={{ fontSize:9, color:T.sage, fontFamily:"'Plus Jakarta Sans',sans-serif", fontWeight:600, background:`${T.sage}18`, padding:"1px 5px", borderRadius:8 }}>{contained.mins}m today</span>}
+            </div>
           </div>
         )}
         <button onClick={()=>setShowMove(!showMove)} style={{ background:"none", border:"none", cursor:"pointer", color:T.dusty, fontSize:13, padding:"0 2px", opacity:0.7, flexShrink:0 }} title="Move to quad">⇄</button>
         <button onClick={()=>setEditing(true)} style={{ background:"none", border:"none", cursor:"pointer", color:T.dusty, fontSize:13, padding:"0 2px", opacity:0.7, flexShrink:0 }}>✎</button>
         <button onClick={()=>onDelete(item.id)} style={{ background:"none", border:"none", cursor:"pointer", color:T.dusty, fontSize:17, padding:"0 2px", lineHeight:1, opacity:0.7, flexShrink:0 }}>×</button>
       </div>
+      {showTimebox && (
+        <div className="fade-up" style={{ display:"flex", gap:6, padding:"6px 4px 0" }}>
+          {TIME_BOXES.map(tb=>(
+            <button key={tb.mins} onClick={()=>handleContain(tb.mins)} style={{ padding:"5px 12px", background:`${T.amber}15`, border:`1px solid ${T.amber}33`, borderRadius:20, fontSize:11, color:T.amber, cursor:"pointer", fontFamily:"'Plus Jakarta Sans',sans-serif", fontWeight:600, transition:"all 0.2s" }}>
+              ⏱ {tb.label}
+            </button>
+          ))}
+          <button onClick={()=>setShowTimebox(false)} style={{ padding:"5px 10px", background:"transparent", border:`1px solid ${T.cardBdr}`, borderRadius:20, fontSize:11, color:T.dusty, cursor:"pointer", fontFamily:"'Plus Jakarta Sans',sans-serif" }}>cancel</button>
+        </div>
+      )}
       {showMove && (
         <div className="fade-up" style={{ display:"flex", gap:6, padding:"6px 4px 0", flexWrap:"wrap" }}>
           {moveOptions.map((opt,i)=>(
@@ -697,12 +736,15 @@ function InlineQuadAdd({ qid, quadColor, onAdd, primaryLane, sideLanes }) {
     qid==="q1" ? primaryLane : "social"
   );
   const [showLanes, setShowLanes] = useState(false);
+  const [recurring, setRecurring] = useState(false);
   const inputRef = useRef();
 
   const add = () => {
     if (!val.trim()) return;
     const urgency = qid==="q1"?"q1" : qid==="q3"?"q3" : null;
-    onAdd({ id:mkId(), text:val.trim(), lane:selLane, urgency });
+    const item = { id:mkId(), text:val.trim(), lane:selLane, urgency };
+    if (qid==="q3" && recurring) item.recurring = true;
+    onAdd(item);
     setVal("");
   };
 
@@ -725,6 +767,11 @@ function InlineQuadAdd({ qid, quadColor, onAdd, primaryLane, sideLanes }) {
           placeholder="Add item..."
           style={{ flex:1, padding:"9px 12px", background:T.bg, border:`1px solid ${quadColor}28`, borderRadius:10, fontSize:12, fontFamily:"'Plus Jakarta Sans',sans-serif", color:T.ink, outline:"none" }}
         />
+        {qid==="q3" && (
+          <button onClick={()=>setRecurring(!recurring)} style={{ width:30, height:30, borderRadius:8, background:recurring?`${T.amber}25`:`${quadColor}12`, border:`1px solid ${recurring?T.amber:quadColor+"28"}`, color:recurring?T.amber:quadColor, fontSize:12, cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.2s" }} title={recurring?"Recurring (stays)":"One-off (removed after)"}>
+            {recurring?"🔄":"1×"}
+          </button>
+        )}
         <button onClick={add} style={{ width:30, height:30, borderRadius:8, background:quadColor, border:"none", color:"white", fontSize:16, cursor:"pointer", flexShrink:0 }}>+</button>
       </div>
     </div>
@@ -732,7 +779,7 @@ function InlineQuadAdd({ qid, quadColor, onAdd, primaryLane, sideLanes }) {
 }
 
 /* MATRIX */
-function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, onCompleteItem, onStokeItem, onDeflectItem, completedToday, deflectStats, primaryLane, sideLanes }) {
+function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, onCompleteItem, onStokeItem, onDeflectItem, onContainItem, completedToday, deflectStats, primaryLane, sideLanes }) {
   const byQuad = qid => items.filter(i => deriveQuad(i, primaryLane, sideLanes) === qid);
 
   return (
@@ -788,7 +835,7 @@ function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, 
                 : qItems.map(item=>(
                   <TaskRow key={item.id} item={item} quadColor={q.color}
                     onDelete={onDeleteItem} onEdit={onEditItem} onMove={onMoveItem} onComplete={onCompleteItem}
-                    onStoke={onStokeItem} onDeflect={onDeflectItem}
+                    onStoke={onStokeItem} onDeflect={onDeflectItem} onContain={onContainItem}
                     isQ2={qid==="q2"} isQ3={qid==="q3"}
                     primaryLane={primaryLane} sideLanes={sideLanes}
                   />
@@ -1260,11 +1307,15 @@ export default function App() {
       setItems(prev=>prev.filter(i=>i.id!==id));
     }
   };
+  const containItem = (id, mins) => {
+    const d = today();
+    setItems(prev=>prev.map(i=>i.id===id?{...i, containedDates:[...(i.containedDates||[]).filter(e=>e.date!==d), {date:d, mins}]}:i));
+  };
 
   const renderScreen = () => {
     switch(screen){
       case "home":   return <HomeScreen phase={phase} mood={mood} setMood={setMood} primaryLane={primaryLane} sideLanes={sideLanes} mantraIdx={mantraIdx} onNav={setScreen} items={items} spark={spark} onShuffle={refreshSpark} completedToday={completedToday} deflectStats={deflectStats} completedLog={completedLog}/>;
-      case "matrix": return <MatrixScreen items={items} onAddItem={addItem} onDeleteItem={deleteItem} onEditItem={editItem} onMoveItem={moveItem} onCompleteItem={completeItem} onStokeItem={stokeItem} onDeflectItem={deflectItem} completedToday={completedToday} deflectStats={deflectStats} primaryLane={primaryLane} sideLanes={sideLanes}/>;
+      case "matrix": return <MatrixScreen items={items} onAddItem={addItem} onDeleteItem={deleteItem} onEditItem={editItem} onMoveItem={moveItem} onCompleteItem={completeItem} onStokeItem={stokeItem} onDeflectItem={deflectItem} onContainItem={containItem} completedToday={completedToday} deflectStats={deflectStats} primaryLane={primaryLane} sideLanes={sideLanes}/>;
       case "reflect": return <ReflectScreen phase={phase}/>;
       case "phase":  return <PhaseScreen phase={phase} setPhase={setPhase}/>;
       case "lanes":  return <LanesScreen primaryLane={primaryLane} setPrimaryLane={setPrimaryLane} sideLanes={sideLanes} setSideLanes={setSideLanes} items={items}/>;
