@@ -1,4 +1,4 @@
-import { put, list, del } from '@vercel/blob';
+import { put, get, list, del } from '@vercel/blob';
 
 export default async function handler(req, res) {
   const key = req.query.key;
@@ -12,9 +12,9 @@ export default async function handler(req, res) {
     try {
       const { blobs } = await list({ prefix: path, limit: 1 });
       if (blobs.length === 0) return res.status(404).json({ error: 'not found' });
-      const resp = await fetch(blobs[0].url);
-      const data = await resp.json();
-      return res.status(200).json(data);
+      const blob = await get(blobs[0].url);
+      const text = await new Response(blob.body).text();
+      return res.status(200).json(JSON.parse(text));
     } catch {
       return res.status(404).json({ error: 'not found' });
     }
@@ -27,7 +27,7 @@ export default async function handler(req, res) {
       if (blobs.length > 0) await del(blobs.map(b => b.url));
       // Save new state
       await put(path, JSON.stringify(req.body), {
-        access: 'public',
+        access: 'private',
         addRandomSuffix: false,
         contentType: 'application/json',
       });
