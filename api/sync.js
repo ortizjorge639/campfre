@@ -1,4 +1,4 @@
-import { put, list, del } from '@vercel/blob';
+import { put, get, list, del } from '@vercel/blob';
 
 export default async function handler(req, res) {
   const key = req.query.key;
@@ -12,22 +12,27 @@ export default async function handler(req, res) {
     try {
       const { blobs } = await list({ prefix: path, limit: 1 });
       if (blobs.length === 0) return res.status(404).json({ error: 'not found' });
-      // For private stores, blob.url includes a token for download
-      const resp = await fetch(blobs[0].downloadUrl);
-      if (!resp.ok) return res.status(404).json({ error: 'fetch failed', status: resp.status });
-      const data = await resp.json();
-      return res.status(200).json(data);
+      const blob = await get(blobs[0].url);
+      if (!blob) return res.status(404).json({ error: 'blob empty' });
+      // blob.body is a ReadableStream — collect it
+      const reader = blob.body.getReader();
+      const chunks = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+      const text = new TextDecoder().decode(Buffer.concat(chunks));
+      return res.status(200).json(JSON.parse(text));
     } catch (err) {
-      return res.status(500).json({ error: err.message, stack: err.stack?.split('\n')[0] });
+      return res.status(500).json({ error: err.message });
     }
   }
 
   if (req.method === 'POST') {
     try {
-      // Delete old blob if exists
       const { blobs } = await list({ prefix: path, limit: 1 });
       if (blobs.length > 0) await del(blobs.map(b => b.url));
-      // Save new state
       await put(path, JSON.stringify(req.body), {
         access: 'private',
         addRandomSuffix: false,
