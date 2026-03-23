@@ -289,12 +289,13 @@ function getEmberState(stokedDates) {
 }
 
 /* ─── ITEM ROW (matrix sheet) ─── */
-function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStoke, isQ2, primaryLane, sideLanes }) {
+function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStoke, onDeflect, isQ2, isQ3, primaryLane, sideLanes }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(item.text);
   const [showMove, setShowMove] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [justStoked, setJustStoked] = useState(false);
+  const [deflecting, setDeflecting] = useState(null); // "deflect" | "absorb" | null
   const inputRef = useRef();
   useEffect(()=>{ if(editing) inputRef.current?.focus(); },[editing]);
 
@@ -315,6 +316,11 @@ function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStok
     setTimeout(()=>setJustStoked(false), 800);
   };
 
+  const handleDeflect = (action) => {
+    setDeflecting(action);
+    setTimeout(()=>onDeflect(item.id, action), 450);
+  };
+
   const ember = isQ2 ? getEmberState(item.stokedDates) : null;
   const stokedToday = ember === "stoked";
 
@@ -331,15 +337,23 @@ function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStok
 
   return (
     <div style={{ marginBottom:6, opacity:completing?0:1, transform:completing?"scale(0.95)": justStoked?"scale(1.02)":"scale(1)", transition:"all 0.35s ease" }}>
-      <div style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", background: isQ2&&stokedToday ? `${quadColor}18` : `${quadColor}10`, border:`1px solid ${isQ2&&stokedToday ? quadColor+"44" : quadColor+"28"}`, borderRadius:12, transition:"all 0.3s ease" }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", background: isQ2&&stokedToday ? `${quadColor}18` : deflecting ? (deflecting==="deflect"?`${T.sage}18`:`${T.coral}18`) : `${quadColor}10`, border:`1px solid ${isQ2&&stokedToday ? quadColor+"44" : quadColor+"28"}`, borderRadius:12, transition:"all 0.3s ease" }}>
         {isQ2 ? (
           /* Ember button for Q2 */
           <button onClick={stokedToday?undefined:handleStoke} style={{ width:24, height:24, borderRadius:"50%", background:stokedToday?`${quadColor}30`:"transparent", border:`2px solid ${stokedToday?quadColor:quadColor+"44"}`, cursor:stokedToday?"default":"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", padding:0, transition:"all 0.3s cubic-bezier(0.34,1.56,0.64,1)", transform:justStoked?"scale(1.3)":"scale(1)", opacity:emberOpacity, fontSize:12 }}
             title={stokedToday?"Stoked today":"Stoke the ember"}>
             {emberIcon}
           </button>
+        ) : isQ3 ? (
+          /* Deflect / Absorb for Q3 */
+          <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+            <button onClick={()=>handleDeflect("deflect")} style={{ width:24, height:24, borderRadius:"50%", background:deflecting==="deflect"?`${T.sage}44`:"transparent", border:`2px solid ${T.sage}55`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", padding:0, fontSize:11, transition:"all 0.25s cubic-bezier(0.34,1.56,0.64,1)", transform:deflecting==="deflect"?"scale(1.2)":"scale(1)" }}
+              title="Deflect — said no or delegated">🛡</button>
+            <button onClick={()=>handleDeflect("absorb")} style={{ width:24, height:24, borderRadius:"50%", background:deflecting==="absorb"?`${T.coral}44`:"transparent", border:`2px solid ${T.coral}44`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", padding:0, fontSize:11, transition:"all 0.25s cubic-bezier(0.34,1.56,0.64,1)", transform:deflecting==="absorb"?"scale(1.2)":"scale(1)" }}
+              title="Absorb — it ate your time">🫠</button>
+          </div>
         ) : (
-          /* Checkbox for Q1/Q3/Q4 */
+          /* Checkbox for Q1/Q4 */
           <button onClick={handleComplete} style={{ width:20, height:20, borderRadius:"50%", background:"transparent", border:`2px solid ${quadColor}66`, cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", padding:0, transition:"all 0.2s" }}
             onMouseEnter={e=>{e.currentTarget.style.background=`${quadColor}33`;e.currentTarget.style.borderColor=quadColor;}}
             onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor=`${quadColor}66`;}}>
@@ -543,7 +557,7 @@ function SerendipityCard({ spark, onShuffle }) {
   );
 }
 
-function HomeScreen({ phase, mood, setMood, primaryLane, sideLanes, mantraIdx, onNav, items, spark, onShuffle, completedToday, completedLog }) {
+function HomeScreen({ phase, mood, setMood, primaryLane, sideLanes, mantraIdx, onNav, items, spark, onShuffle, completedToday, deflectStats, completedLog }) {
   const m = MANTRAS[mantraIdx];
   const phaseObj = PHASES.find(p=>p.id===phase);
   const lane = LANES.find(l=>l.id===primaryLane);
@@ -621,8 +635,8 @@ function HomeScreen({ phase, mood, setMood, primaryLane, sideLanes, mantraIdx, o
       {/* Stats row */}
       <div style={{ padding:"14px 20px 0" }}>
         <div style={{ background:T.card, borderRadius:18, padding:"16px", border:`1px solid ${T.cardBdr}` }}>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:0 }}>
-            {[{val:total,label:"Active",color:T.ink},{val:completedToday,label:"Done Today",color:T.sage},{val:q1,label:"Do Now",color:T.coral}].map((s,i)=>(
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:0 }}>
+            {[{val:total,label:"Active",color:T.ink},{val:completedToday,label:"Done Today",color:T.sage},{val:q1,label:"Do Now",color:T.coral},{val:deflectStats.total>0?`${deflectStats.deflected}/${deflectStats.total}`:"-",label:"Deflected",color:deflectStats.deflected>=deflectStats.absorbed?T.sage:T.coral}].map((s,i)=>(
               <div key={i} style={{ textAlign:"center", borderRight:i<2?`1px solid ${T.cardBdr}`:"none", padding:"0 8px" }}>
                 <div style={{ fontFamily:"'Clash Display',sans-serif", fontSize:30, fontWeight:700, color:s.color, lineHeight:1 }}>{s.val}</div>
                 <div style={{ fontSize:11, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif", marginTop:3 }}>{s.label}</div>
@@ -718,7 +732,7 @@ function InlineQuadAdd({ qid, quadColor, onAdd, primaryLane, sideLanes }) {
 }
 
 /* MATRIX */
-function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, onCompleteItem, onStokeItem, completedToday, primaryLane, sideLanes }) {
+function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, onCompleteItem, onStokeItem, onDeflectItem, completedToday, deflectStats, primaryLane, sideLanes }) {
   const byQuad = qid => items.filter(i => deriveQuad(i, primaryLane, sideLanes) === qid);
 
   return (
@@ -727,16 +741,23 @@ function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, 
         <div>
           <div style={{ fontFamily:"'Clash Display',sans-serif", fontSize:26, fontWeight:700, color:T.ink }}>Focus Matrix</div>
           <div style={{ fontSize:13, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
-            Tap ○ to complete · 🔥 to stoke · double-tap to edit
+            Tap ○ to complete · 🔥 stoke · 🛡🫠 limit · double-tap edit
           </div>
         </div>
-        {completedToday > 0 && (
-          <div style={{ background:`${T.sage}18`, border:`1px solid ${T.sage}33`, borderRadius:14, padding:"6px 12px", display:"flex", alignItems:"center", gap:6 }}>
-            <span style={{ fontSize:14 }}>✓</span>
-            <div style={{ fontFamily:"'Clash Display',sans-serif", fontSize:18, fontWeight:700, color:T.sage }}>{completedToday}</div>
-            <div style={{ fontSize:10, color:T.dusty, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>today</div>
-          </div>
-        )}
+        <div style={{ display:"flex", gap:6 }}>
+          {deflectStats.total > 0 && (
+            <div style={{ background:`${deflectStats.deflected>=deflectStats.absorbed?T.sage:T.coral}18`, border:`1px solid ${deflectStats.deflected>=deflectStats.absorbed?T.sage:T.coral}33`, borderRadius:14, padding:"6px 10px", display:"flex", alignItems:"center", gap:4 }}>
+              <span style={{ fontSize:12 }}>🛡</span>
+              <div style={{ fontFamily:"'Clash Display',sans-serif", fontSize:16, fontWeight:700, color:deflectStats.deflected>=deflectStats.absorbed?T.sage:T.coral }}>{deflectStats.deflected}/{deflectStats.total}</div>
+            </div>
+          )}
+          {completedToday > 0 && (
+            <div style={{ background:`${T.sage}18`, border:`1px solid ${T.sage}33`, borderRadius:14, padding:"6px 10px", display:"flex", alignItems:"center", gap:4 }}>
+              <span style={{ fontSize:12 }}>✓</span>
+              <div style={{ fontFamily:"'Clash Display',sans-serif", fontSize:16, fontWeight:700, color:T.sage }}>{completedToday}</div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
@@ -767,7 +788,8 @@ function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, 
                 : qItems.map(item=>(
                   <TaskRow key={item.id} item={item} quadColor={q.color}
                     onDelete={onDeleteItem} onEdit={onEditItem} onMove={onMoveItem} onComplete={onCompleteItem}
-                    onStoke={onStokeItem} isQ2={qid==="q2"}
+                    onStoke={onStokeItem} onDeflect={onDeflectItem}
+                    isQ2={qid==="q2"} isQ3={qid==="q3"}
                     primaryLane={primaryLane} sideLanes={sideLanes}
                   />
                 ))
@@ -1209,7 +1231,11 @@ export default function App() {
     }
   },[showTip]);
 
-  const completedToday = completedLog.filter(e => e.date === today()).length;
+  const completedToday = completedLog.filter(e => e.date === today() && !e.action).length;
+  const deflectStats = (() => {
+    const todayEntries = completedLog.filter(e => e.date === today() && e.action);
+    return { deflected: todayEntries.filter(e=>e.action==="deflect").length, absorbed: todayEntries.filter(e=>e.action==="absorb").length, total: todayEntries.length };
+  })();
 
   /* Item CRUD */
   const addItem    = (item) => setItems(prev=>[...prev, item]);
@@ -1227,11 +1253,18 @@ export default function App() {
     const d = today();
     setItems(prev=>prev.map(i=>i.id===id?{...i, stokedDates:[...(i.stokedDates||[]).filter(s=>s!==d), d]}:i));
   };
+  const deflectItem = (id, action) => {
+    const item = items.find(i=>i.id===id);
+    if (item) {
+      setCompletedLog(prev=>[...prev, { text:item.text, lane:item.lane, quad:"q3", action, date:today(), time:new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) }]);
+      setItems(prev=>prev.filter(i=>i.id!==id));
+    }
+  };
 
   const renderScreen = () => {
     switch(screen){
-      case "home":   return <HomeScreen phase={phase} mood={mood} setMood={setMood} primaryLane={primaryLane} sideLanes={sideLanes} mantraIdx={mantraIdx} onNav={setScreen} items={items} spark={spark} onShuffle={refreshSpark} completedToday={completedToday} completedLog={completedLog}/>;
-      case "matrix": return <MatrixScreen items={items} onAddItem={addItem} onDeleteItem={deleteItem} onEditItem={editItem} onMoveItem={moveItem} onCompleteItem={completeItem} onStokeItem={stokeItem} completedToday={completedToday} primaryLane={primaryLane} sideLanes={sideLanes}/>;
+      case "home":   return <HomeScreen phase={phase} mood={mood} setMood={setMood} primaryLane={primaryLane} sideLanes={sideLanes} mantraIdx={mantraIdx} onNav={setScreen} items={items} spark={spark} onShuffle={refreshSpark} completedToday={completedToday} deflectStats={deflectStats} completedLog={completedLog}/>;
+      case "matrix": return <MatrixScreen items={items} onAddItem={addItem} onDeleteItem={deleteItem} onEditItem={editItem} onMoveItem={moveItem} onCompleteItem={completeItem} onStokeItem={stokeItem} onDeflectItem={deflectItem} completedToday={completedToday} deflectStats={deflectStats} primaryLane={primaryLane} sideLanes={sideLanes}/>;
       case "reflect": return <ReflectScreen phase={phase}/>;
       case "phase":  return <PhaseScreen phase={phase} setPhase={setPhase}/>;
       case "lanes":  return <LanesScreen primaryLane={primaryLane} setPrimaryLane={setPrimaryLane} sideLanes={sideLanes} setSideLanes={setSideLanes} items={items}/>;
