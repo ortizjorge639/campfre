@@ -298,7 +298,7 @@ function getEmberState(stokedDates) {
 }
 
 /* ─── ITEM ROW (matrix sheet) ─── */
-function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStoke, onDeflect, onContain, isQ2, isQ3, primaryLane, sideLanes }) {
+function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStoke, onDeflect, onContain, onIndulge, isQ2, isQ3, isQ4, unstokedCount, primaryLane, sideLanes }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(item.text);
   const [showMove, setShowMove] = useState(false);
@@ -307,6 +307,8 @@ function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStok
   const [deflecting, setDeflecting] = useState(null);
   const [showTimebox, setShowTimebox] = useState(false);
   const [justContained, setJustContained] = useState(false);
+  const [showNudge, setShowNudge] = useState(false);
+  const [justIndulged, setJustIndulged] = useState(false);
   const inputRef = useRef();
   useEffect(()=>{ if(editing) inputRef.current?.focus(); },[editing]);
 
@@ -339,8 +341,20 @@ function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStok
     setTimeout(()=>setJustContained(false), 800);
   };
 
+  const handleIndulge = () => {
+    if (isQ4 && unstokedCount > 0 && !showNudge) {
+      setShowNudge(true);
+      return;
+    }
+    onIndulge(item.id);
+    setShowNudge(false);
+    setJustIndulged(true);
+    setTimeout(()=>setJustIndulged(false), 800);
+  };
+
   const ember = isQ2 ? getEmberState(item.stokedDates) : null;
   const contained = (isQ3 && item.recurring) ? getContainState(item.containedDates) : null;
+  const indulgedToday = isQ4 && item.indulgedDates?.includes(today());
   const stokedToday = ember === "stoked";
 
   const moveOptions = [
@@ -356,7 +370,7 @@ function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStok
 
   return (
     <div style={{ marginBottom:6, opacity:completing?0:1, transform:completing?"scale(0.95)": justStoked?"scale(1.02)":"scale(1)", transition:"all 0.35s ease" }}>
-      <div style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", background: isQ2&&stokedToday ? `${quadColor}18` : deflecting ? (deflecting==="deflect"?`${T.sage}18`:`${T.coral}18`) : `${quadColor}10`, border:`1px solid ${isQ2&&stokedToday ? quadColor+"44" : quadColor+"28"}`, borderRadius:12, transition:"all 0.3s ease" }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 12px", background: isQ2&&stokedToday ? `${quadColor}18` : isQ4&&indulgedToday ? `${quadColor}18` : deflecting ? (deflecting==="deflect"?`${T.sage}18`:`${T.coral}18`) : `${quadColor}10`, border:`1px solid ${isQ2&&stokedToday||isQ4&&indulgedToday ? quadColor+"44" : quadColor+"28"}`, borderRadius:12, transition:"all 0.3s ease" }}>
         {isQ2 ? (
           /* Ember button for Q2 */
           <button onClick={stokedToday?undefined:handleStoke} style={{ width:24, height:24, borderRadius:"50%", background:stokedToday?`${quadColor}30`:"transparent", border:`2px solid ${stokedToday?quadColor:quadColor+"44"}`, cursor:stokedToday?"default":"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", padding:0, transition:"all 0.3s cubic-bezier(0.34,1.56,0.64,1)", transform:justStoked?"scale(1.3)":"scale(1)", opacity:emberOpacity, fontSize:12 }}
@@ -377,8 +391,14 @@ function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStok
             <button onClick={()=>handleDeflect("absorb")} style={{ width:24, height:24, borderRadius:"50%", background:deflecting==="absorb"?`${T.coral}44`:"transparent", border:`2px solid ${T.coral}44`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", padding:0, fontSize:11, transition:"all 0.25s cubic-bezier(0.34,1.56,0.64,1)", transform:deflecting==="absorb"?"scale(1.2)":"scale(1)" }}
               title="Absorb — it ate your time">🫠</button>
           </div>
+        ) : isQ4 ? (
+          /* Indulge for Q4 — persistent items */
+          <button onClick={indulgedToday?undefined:handleIndulge} style={{ width:24, height:24, borderRadius:"50%", background:indulgedToday?`${quadColor}30`:"transparent", border:`2px solid ${indulgedToday?quadColor:quadColor+"44"}`, cursor:indulgedToday?"default":"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", padding:0, fontSize:12, transition:"all 0.3s cubic-bezier(0.34,1.56,0.64,1)", transform:justIndulged?"scale(1.25)":"scale(1)", opacity:indulgedToday?1:0.5 }}
+            title={indulgedToday?"Enjoyed today":"Enjoy this"}>
+            {indulgedToday?"🎮":"🎮"}
+          </button>
         ) : (
-          /* Checkbox for Q1/Q4 */
+          /* Checkbox for Q1 */
           <button onClick={handleComplete} style={{ width:20, height:20, borderRadius:"50%", background:"transparent", border:`2px solid ${quadColor}66`, cursor:"pointer", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", padding:0, transition:"all 0.2s" }}
             onMouseEnter={e=>{e.currentTarget.style.background=`${quadColor}33`;e.currentTarget.style.borderColor=quadColor;}}
             onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor=`${quadColor}66`;}}>
@@ -397,6 +417,7 @@ function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStok
               <LaneBadge laneId={item.lane} small />
               {item.recurring && <span style={{ fontSize:9, color:T.amber, fontFamily:"'Plus Jakarta Sans',sans-serif", fontWeight:600, background:`${T.amber}18`, padding:"1px 5px", borderRadius:8 }}>recurring</span>}
               {contained && <span style={{ fontSize:9, color:T.sage, fontFamily:"'Plus Jakarta Sans',sans-serif", fontWeight:600, background:`${T.sage}18`, padding:"1px 5px", borderRadius:8 }}>{contained.mins}m today</span>}
+              {indulgedToday && <span style={{ fontSize:9, color:quadColor, fontFamily:"'Plus Jakarta Sans',sans-serif", fontWeight:600, background:`${quadColor}18`, padding:"1px 5px", borderRadius:8 }}>enjoyed today</span>}
             </div>
           </div>
         )}
@@ -404,6 +425,19 @@ function TaskRow({ item, quadColor, onDelete, onEdit, onMove, onComplete, onStok
         <button onClick={()=>setEditing(true)} style={{ background:"none", border:"none", cursor:"pointer", color:T.dusty, fontSize:13, padding:"0 2px", opacity:0.7, flexShrink:0 }}>✎</button>
         <button onClick={()=>onDelete(item.id)} style={{ background:"none", border:"none", cursor:"pointer", color:T.dusty, fontSize:17, padding:"0 2px", lineHeight:1, opacity:0.7, flexShrink:0 }}>×</button>
       </div>
+      {showNudge && (
+        <div className="fade-up" style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 8px 0" }}>
+          <div style={{ flex:1, fontSize:11, color:T.amber, fontFamily:"'Plus Jakarta Sans',sans-serif", fontStyle:"italic" }}>
+            {unstokedCount} ember{unstokedCount!==1?"s":""} unstoked — enjoy anyway?
+          </div>
+          <button onClick={handleIndulge} style={{ padding:"4px 10px", background:`${T.amber}20`, border:`1px solid ${T.amber}44`, borderRadius:16, fontSize:11, color:T.amber, cursor:"pointer", fontFamily:"'Plus Jakarta Sans',sans-serif", fontWeight:600 }}>
+            enjoy
+          </button>
+          <button onClick={()=>setShowNudge(false)} style={{ padding:"4px 8px", background:"transparent", border:`1px solid ${T.cardBdr}`, borderRadius:16, fontSize:11, color:T.dusty, cursor:"pointer", fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
+            later
+          </button>
+        </div>
+      )}
       {showTimebox && (
         <div className="fade-up" style={{ display:"flex", gap:6, padding:"6px 4px 0" }}>
           {TIME_BOXES.map(tb=>(
@@ -779,7 +813,7 @@ function InlineQuadAdd({ qid, quadColor, onAdd, primaryLane, sideLanes }) {
 }
 
 /* MATRIX */
-function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, onCompleteItem, onStokeItem, onDeflectItem, onContainItem, completedToday, deflectStats, primaryLane, sideLanes }) {
+function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, onCompleteItem, onStokeItem, onDeflectItem, onContainItem, onIndulgeItem, completedToday, deflectStats, unstokedCount, primaryLane, sideLanes }) {
   const byQuad = qid => items.filter(i => deriveQuad(i, primaryLane, sideLanes) === qid);
 
   return (
@@ -835,8 +869,8 @@ function MatrixScreen({ items, onAddItem, onDeleteItem, onEditItem, onMoveItem, 
                 : qItems.map(item=>(
                   <TaskRow key={item.id} item={item} quadColor={q.color}
                     onDelete={onDeleteItem} onEdit={onEditItem} onMove={onMoveItem} onComplete={onCompleteItem}
-                    onStoke={onStokeItem} onDeflect={onDeflectItem} onContain={onContainItem}
-                    isQ2={qid==="q2"} isQ3={qid==="q3"}
+                    onStoke={onStokeItem} onDeflect={onDeflectItem} onContain={onContainItem} onIndulge={onIndulgeItem}
+                    isQ2={qid==="q2"} isQ3={qid==="q3"} isQ4={qid==="q4"} unstokedCount={unstokedCount}
                     primaryLane={primaryLane} sideLanes={sideLanes}
                   />
                 ))
@@ -1311,11 +1345,16 @@ export default function App() {
     const d = today();
     setItems(prev=>prev.map(i=>i.id===id?{...i, containedDates:[...(i.containedDates||[]).filter(e=>e.date!==d), {date:d, mins}]}:i));
   };
+  const indulgeItem = (id) => {
+    const d = today();
+    setItems(prev=>prev.map(i=>i.id===id?{...i, indulgedDates:[...(i.indulgedDates||[]).filter(s=>s!==d), d]}:i));
+  };
+  const unstokedCount = items.filter(i=>deriveQuad(i,primaryLane,sideLanes)==="q2" && getEmberState(i.stokedDates)!=="stoked").length;
 
   const renderScreen = () => {
     switch(screen){
       case "home":   return <HomeScreen phase={phase} mood={mood} setMood={setMood} primaryLane={primaryLane} sideLanes={sideLanes} mantraIdx={mantraIdx} onNav={setScreen} items={items} spark={spark} onShuffle={refreshSpark} completedToday={completedToday} deflectStats={deflectStats} completedLog={completedLog}/>;
-      case "matrix": return <MatrixScreen items={items} onAddItem={addItem} onDeleteItem={deleteItem} onEditItem={editItem} onMoveItem={moveItem} onCompleteItem={completeItem} onStokeItem={stokeItem} onDeflectItem={deflectItem} onContainItem={containItem} completedToday={completedToday} deflectStats={deflectStats} primaryLane={primaryLane} sideLanes={sideLanes}/>;
+      case "matrix": return <MatrixScreen items={items} onAddItem={addItem} onDeleteItem={deleteItem} onEditItem={editItem} onMoveItem={moveItem} onCompleteItem={completeItem} onStokeItem={stokeItem} onDeflectItem={deflectItem} onContainItem={containItem} onIndulgeItem={indulgeItem} completedToday={completedToday} deflectStats={deflectStats} unstokedCount={unstokedCount} primaryLane={primaryLane} sideLanes={sideLanes}/>;
       case "reflect": return <ReflectScreen phase={phase}/>;
       case "phase":  return <PhaseScreen phase={phase} setPhase={setPhase}/>;
       case "lanes":  return <LanesScreen primaryLane={primaryLane} setPrimaryLane={setPrimaryLane} sideLanes={sideLanes} setSideLanes={setSideLanes} items={items}/>;
