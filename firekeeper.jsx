@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+﻿import { useState, useEffect, useRef } from "react";
 
 /* ─── TOKENS ─── */
 const T = {
@@ -1449,6 +1449,22 @@ export default function App() {
       }
     });
   },[]);
+
+  // Poll for remote changes every 30s
+  useEffect(() => {
+    const id = setInterval(async () => {
+      const cloud = await cloudLoad();
+      if (cloud?.items) {
+        setItems(cloud.items);
+        if (cloud.phase) setPhase(cloud.phase);
+        if (cloud.mood) setMood(cloud.mood);
+        if (cloud.primaryLane) setPrimaryLane(cloud.primaryLane);
+        if (cloud.sideLanes) setSideLanes(cloud.sideLanes);
+        if (cloud.completedLog) setCompletedLog(cloud.completedLog);
+      }
+    }, 30000);
+    return () => clearInterval(id);
+  }, []); // empty deps — runs once on mount, polls forever
 
   useEffect(()=>{
     const id=setInterval(()=>setMantraIdx(m=>(m+1)%MANTRAS.length),6000);
